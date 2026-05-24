@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AeroGuard Twin | Round 2 SIL Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Airbus Fly Your Ideas - Round 2 SIL demo</p>
+          <h1>AeroGuard Twin</h1>
+        </div>
+        <div class="system-strip" aria-label="System health summary">
+          <div class="strip-item">
+            <span>Edge state</span>
+            <strong id="edgeState">IDLE</strong>
+          </div>
+          <div class="strip-item">
+            <span>Loop latency</span>
+            <strong id="latency">--</strong>
+          </div>
+          <div class="strip-item">
+            <span>Telemetry</span>
+            <strong id="telemetryRate">--</strong>
+          </div>
+          <div class="strip-item risk-strip">
+            <span>Risk</span>
+            <strong id="topRisk">--</strong>
+          </div>
+        </div>
+      </header>
+
+      <nav class="view-tabs" aria-label="Prototype pages">
+        <button class="active" type="button" data-view-target="overview">Overview</button>
+        <button type="button" data-view-target="system">System View</button>
+        <button type="button" data-view-target="training">CFD + AI Model</button>
+        <button type="button" data-view-target="console">Operator Console</button>
+      </nav>
+
+      <main class="view-page overview-page active" id="view-overview">
+        <section class="panel overview-hero">
+          <div>
+            <p class="eyebrow">Software-in-the-loop architecture</p>
+            <h2>CFD pressure data becomes edge-AI instability intelligence.</h2>
+          </div>
+            <div class="overview-status">
+              <span>Live risk</span>
+            <strong id="overviewRisk">--</strong>
+            </div>
+        </section>
+
+        <section class="flow-grid" aria-label="Architecture flow">
+          <article class="flow-step">
+            <span>1</span>
+            <strong>CFD pressure traces</strong>
+            <p>Fluent pressure-monitor files provide high-frequency chamber pressure history.</p>
+          </article>
+          <article class="flow-step">
+            <span>2</span>
+            <strong>Windowed acoustic features</strong>
+            <p>Each pressure window is converted into RMS, growth, peak-to-peak, and L2/T1/T2 spectral energy.</p>
+          </article>
+          <article class="flow-step">
+            <span>3</span>
+            <strong>CFD-trained edge model</strong>
+            <p>A lightweight model predicts instability risk and selects the dominant acoustic mode.</p>
+          </article>
+          <article class="flow-step">
+            <span>4</span>
+            <strong>Bounded dO/F correction</strong>
+            <p>The console recommends a small oxidizer-fuel trim when resonance risk rises.</p>
+          </article>
+        </section>
+
+        <section class="quick-grid">
+          <article class="panel quick-card">
+            <span>Current mode</span>
+            <strong id="overviewMode">Waiting for CSV</strong>
+          </article>
+          <article class="panel quick-card">
+            <span>Correction action</span>
+            <strong id="overviewAction">IDLE</strong>
+          </article>
+          <article class="panel quick-card">
+            <span>Model source</span>
+            <strong id="overviewModel">Model ready</strong>
+          </article>
+        </section>
+      </main>
+
+      <main class="view-page system-page" id="view-system">
+        <section class="panel system-intro">
+          <div>
+            <p class="eyebrow">Behavioral digital twin</p>
+            <h2>Simplified engine safety loop</h2>
+          </div>
+          <p>
+            The twin represents the propulsion system through pressure/acoustic behavior, sensor telemetry,
+            edge inference, and bounded valve correction.
+          </p>
+        </section>
+
+        <section class="panel system-diagram" aria-label="Engine digital twin system schematic">
+          <div class="engine-schematic is-3d">
+            <canvas id="engineCanvas" class="engine-canvas" aria-label="3D combustion chamber digital twin visualization"></canvas>
+            <div class="injector">
+              <span>Injector</span>
+            </div>
+            <div class="chamber risk-idle" id="systemChamber">
+              <div class="chamber-shell" aria-hidden="true"></div>
+              <div class="flame-core"></div>
+              <div class="mode-hotspot" aria-hidden="true"></div>
+              <div class="acoustic-ring ring-one" aria-hidden="true"></div>
+              <div class="acoustic-ring ring-two" aria-hidden="true"></div>
+              <div class="acoustic-ring ring-three" aria-hidden="true"></div>
+              <div class="chamber-copy">
+                <span>Combustion chamber</span>
+                <strong id="systemPressure">Pch --</strong>
+              </div>
+            </div>
+            <div class="nozzle">
+              <span>Nozzle</span>
+              <div class="exhaust-plume" aria-hidden="true"></div>
+            </div>
+            <div class="sensor-node">
+              <span></span>
+              <strong>Piezo pressure sensor</strong>
+            </div>
+          </div>
+
+          <div class="edge-stack">
+            <div class="edge-box">
+              <span>Edge SoC</span>
+              <strong>CFD-trained AI</strong>
+              <p>FFT/window features -> risk + mode</p>
+            </div>
+            <div class="edge-box decision">
+              <span>Decision</span>
+              <strong id="systemAction">IDLE</strong>
+              <p id="systemMode">Mode waiting for CSV</p>
+            </div>
+          </div>
+
+          <div class="flow-line flow-feed" aria-hidden="true"></div>
+          <div class="flow-line flow-sensor" aria-hidden="true"></div>
+          <div class="flow-line flow-control" aria-hidden="true"></div>
+        </section>
+
+        <section class="system-metrics">
+          <article class="panel quick-card">
+            <span>Instability risk</span>
+            <strong id="systemRisk">--</strong>
+          </article>
+          <article class="panel quick-card">
+            <span>Valve command</span>
+            <strong id="systemTrim">dO/F --</strong>
+          </article>
+          <article class="panel quick-card">
+            <span>Digital twin scope</span>
+            <strong>Acoustic + control behavior</strong>
+          </article>
+        </section>
+      </main>
+
+      <main class="view-page training-page" id="view-training">
+        <section class="panel training-summary">
+          <div>
+            <p class="eyebrow">CFD data to model artifact</p>
+            <h2>Training status</h2>
+          </div>
+          <div class="training-stats">
+            <div>
+              <span>CFD traces</span>
+              <strong id="trainingFiles">4</strong>
+            </div>
+            <div>
+              <span>Training windows</span>
+              <strong id="trainingWindows">47</strong>
+            </div>
+            <div>
+              <span>Risk MAE</span>
+              <strong id="trainingMae">0.016</strong>
+            </div>
+            <div>
+              <span>Model head</span>
+              <strong id="trainingHead">Risk + mode</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="training-grid">
+          <article class="panel training-card">
+            <p class="eyebrow">Input</p>
+            <h2>Pressure monitor files</h2>
+            <p>The trainer reads Fluent `.out` monitor traces and treats each pressure segment as a candidate acoustic window.</p>
+          </article>
+          <article class="panel training-card">
+            <p class="eyebrow">Model</p>
+            <h2 id="trainingModelName">AeroGuard CFD Edge Model</h2>
+            <p id="trainingModelMeta">The dashboard loads the trained JSON artifact at startup.</p>
+          </article>
+          <article class="panel training-card">
+            <p class="eyebrow">Replay</p>
+            <h2>CFD model replay</h2>
+            <p>Load `telemetry_cfd_model_replay.csv` to drive the console with outputs from the trained CFD model.</p>
+          </article>
+        </section>
+      </main>
+
+      <main class="dashboard view-page" id="view-console">
+        <section class="panel chamber-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Combustion chamber acoustic telemetry</p>
+              <h2>Real-time spectral waterfall</h2>
+            </div>
+            <div class="mode-pill" id="modePill">Nominal broadband field</div>
+          </div>
+          <div class="canvas-frame waterfall-frame">
+            <canvas id="waterfallCanvas" width="960" height="420"></canvas>
+            <div class="risk-zones" aria-hidden="true">
+              <span class="zone safe">Safe</span>
+              <span class="zone watch">Watch</span>
+              <span class="zone danger">Critical</span>
+            </div>
+          </div>
+          <div class="frequency-scale" aria-hidden="true">
+            <span>0.2 kHz</span>
+            <span>1.1 kHz L2</span>
+            <span>2.3 kHz T1</span>
+            <span>3.8 kHz T2</span>
+            <span>5.0 kHz</span>
+          </div>
+        </section>
+
+        <aside class="panel intelligence-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Edge-AI inference</p>
+              <h2>Instability intelligence</h2>
+            </div>
+          </div>
+
+          <div class="model-card">
+            <span>Edge model</span>
+            <strong id="edgeModelName">Loading CFD model</strong>
+            <p id="edgeModelMeta">Waiting for trained model artifact.</p>
+          </div>
+
+          <div class="risk-gauge" id="riskGauge" role="img" aria-label="Instability risk gauge">
+            <div class="risk-inner">
+              <span id="riskValue">--</span>
+              <small>% risk</small>
+            </div>
+          </div>
+
+          <div class="status-block">
+            <span class="label">Dominant mode</span>
+            <strong id="dominantMode">Waiting for CSV</strong>
+            <p id="dominantText">Upload a telemetry file, then press Start to begin replay.</p>
+          </div>
+
+          <div class="xai-list" aria-label="Explainable AI frequency contribution bars">
+            <div class="xai-row">
+              <span>L2 1.1 kHz</span>
+              <div class="bar-track"><i id="barL2"></i></div>
+            </div>
+            <div class="xai-row">
+              <span>T1 2.3 kHz</span>
+              <div class="bar-track"><i id="barT1"></i></div>
+            </div>
+            <div class="xai-row">
+              <span>T2 3.8 kHz</span>
+              <div class="bar-track"><i id="barT2"></i></div>
+            </div>
+          </div>
+
+          <div class="recommendation">
+            <span class="label">Control recommendation</span>
+            <strong id="controlAction">Load CSV to begin</strong>
+            <p id="controlReason">No replay data is active yet.</p>
+          </div>
+        </aside>
+
+        <section class="panel controls-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Software-in-the-loop controls</p>
+              <h2>Scenario and edge authority</h2>
+            </div>
+            <button class="icon-button" id="runToggle" type="button" title="Start or pause replay" aria-label="Start or pause replay" disabled>
+              <span id="runIcon">Start</span>
+            </button>
+          </div>
+
+          <div class="segmented" role="group" aria-label="Scenario">
+            <button type="button" class="active" data-scenario="nominal">Nominal</button>
+            <button type="button" data-scenario="onset">Onset</button>
+            <button type="button" data-scenario="suppress">Auto suppress</button>
+            <button type="button" data-scenario="abort">Abort drill</button>
+          </div>
+
+          <div class="data-source-row">
+            <div>
+              <span>Data source</span>
+              <strong id="dataSource">No CSV loaded</strong>
+            </div>
+            <button id="csvButton" type="button">Load CSV</button>
+            <input id="csvInput" type="file" accept=".csv,text/csv" />
+          </div>
+
+          <label class="range-row">
+            <span>CSV row duration</span>
+            <strong id="replayHoldValue">0.8 s</strong>
+            <input id="replayHold" type="range" min="3" max="35" value="12" />
+          </label>
+
+          <label class="range-row">
+            <span>AI sensitivity</span>
+            <strong id="sensitivityValue">72%</strong>
+            <input id="sensitivity" type="range" min="45" max="95" value="72" />
+          </label>
+
+          <label class="range-row">
+            <span>Actuator authority</span>
+            <strong id="authorityValue">38%</strong>
+            <input id="authority" type="range" min="0" max="65" value="38" />
+          </label>
+
+          <div class="toggle-row">
+            <label>
+              <input id="armedToggle" type="checkbox" checked />
+              <span>Closed-loop correction armed</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="plot-grid">
+          <article class="panel plot-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Piezoelectric chamber sensor</p>
+                <h2>Pressure waveform</h2>
+              </div>
+              <span id="pressureReadout" class="readout">--</span>
+            </div>
+            <canvas id="waveformCanvas" width="720" height="230"></canvas>
+          </article>
+
+          <article class="panel plot-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">AI risk and control output</p>
+                <h2>Micro-correction trend</h2>
+              </div>
+              <span id="trimReadout" class="readout">--</span>
+            </div>
+            <canvas id="trendCanvas" width="720" height="230"></canvas>
+          </article>
+        </section>
+
+        <section class="metric-grid" aria-label="Telemetry metrics">
+          <div class="metric">
+            <span>Chamber pressure</span>
+            <strong id="pressureMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Mixture ratio</span>
+            <strong id="mixtureMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Injector delta-P</span>
+            <strong id="injectorMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Dominant frequency</span>
+            <strong id="frequencyMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Growth rate</span>
+            <strong id="growthMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Packet index</span>
+            <strong id="packetMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Valve trim</span>
+            <strong id="trimMetric">--</strong>
+          </div>
+          <div class="metric">
+            <span>Stability margin</span>
+            <strong id="marginMetric">--</strong>
+          </div>
+        </section>
+
+        <section class="panel replay-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Latest replay packets</p>
+              <h2>Telemetry frame log</h2>
+            </div>
+            <span id="streamClock" class="readout">T+0.00 s</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Packet</th>
+                  <th>Pch MPa</th>
+                  <th>O/F</th>
+                  <th>Inj dP</th>
+                  <th>Freq kHz</th>
+                  <th>Risk</th>
+                  <th>Mode</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="telemetryBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
