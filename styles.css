@@ -261,15 +261,49 @@ h2 {
 }
 
 .demo-guide {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(240px, 0.44fr) 1fr;
   gap: 16px;
   align-items: center;
 }
 
+.priority-demo {
+  border-color: rgba(87, 217, 208, 0.42);
+  padding-top: 46px;
+  background:
+    linear-gradient(90deg, rgba(87, 217, 208, 0.13), rgba(87, 217, 208, 0.035) 42%, rgba(241, 184, 77, 0.05));
+  box-shadow:
+    inset 0 0 0 1px rgba(87, 217, 208, 0.08),
+    0 18px 42px rgba(0, 0, 0, 0.24);
+}
+
+.priority-demo::before {
+  content: "LIVE DEMO";
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  border: 1px solid rgba(87, 217, 208, 0.36);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(8, 18, 16, 0.86);
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
 .demo-guide h2 {
   max-width: 520px;
-  font-size: clamp(1.25rem, 2vw, 2rem);
+  font-size: clamp(1.5rem, 2.5vw, 2.55rem);
+}
+
+.demo-lead {
+  max-width: 620px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .demo-actions {
@@ -307,7 +341,8 @@ h2 {
   flex-wrap: wrap;
   gap: 10px;
   flex-basis: 100%;
-  margin-top: 2px;
+  margin-top: 4px;
+  align-items: center;
 }
 
 .download-links a {
@@ -332,7 +367,7 @@ h2 {
   border: 1px solid rgba(87, 217, 208, 0.18);
   border-radius: 6px;
   padding: 14px;
-  background: rgba(87, 217, 208, 0.045);
+  background: rgba(8, 18, 16, 0.58);
 }
 
 .demo-guide li::before {
@@ -359,6 +394,14 @@ h2 {
   color: var(--muted);
   line-height: 1.45;
   font-size: 0.9rem;
+}
+
+.demo-guide .download-links span {
+  display: inline;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 850;
 }
 
 .demo-guide code,

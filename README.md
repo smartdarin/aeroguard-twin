@@ -47,7 +47,8 @@ Note: running through Live Server or GitHub Pages is recommended because the das
 1. Open the dashboard.
 2. On `Overview`, click `Run instability demo` for the fastest assessor-friendly path.
 3. The app opens `Operator Console`, loads the bundled `Unstable.CSV`, and starts replay automatically.
-4. Watch the AI risk, dominant mode, waterfall intensity, 3D chamber color, and bounded `dO/F` correction update live.
+4. Watch the AI risk, dominant mode, waterfall intensity, and bounded `dO/F` correction update live.
+5. Open `System View` to inspect the 3D-style digital twin cutaway of the chamber, injector, nozzle, sensor, and edge-AI decision.
 
 Manual mode:
 
@@ -63,6 +64,8 @@ telemetry_cfd_model_replay.csv
 
 4. Click `Start`.
 5. Move between `System View`, `CFD + AI Model`, and `Operator Console` to show the full safety loop.
+
+Assessors can also download `stable.CSV` and `Unstable.CSV` from the Overview page and run the same data manually through `Operator Console`.
 
 The replay does not run before a CSV is loaded and `Start` is pressed.
 
