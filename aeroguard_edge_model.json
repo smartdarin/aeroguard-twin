@@ -1,7 +1,7 @@
 {
   "name": "AeroGuard CFD Edge Model",
   "version": "0.3.0",
-  "trainedAt": "2026-05-20T13:54:47.067Z",
+  "trainedAt": "2026-05-24T21:20:31.026Z",
   "caveat": "Round 2 SIL model trained on four CFD pressure-monitor traces using weak labels derived from pressure-window spectral features.",
   "modes": [
     {

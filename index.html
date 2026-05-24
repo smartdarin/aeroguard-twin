@@ -75,6 +75,26 @@
           </article>
         </section>
 
+        <section class="panel demo-guide" aria-label="Prototype demo guide">
+          <div>
+            <p class="eyebrow">Assessor demo path</p>
+            <h2>Run the instability replay in under one minute.</h2>
+            <div class="demo-actions">
+              <button class="primary-action" type="button" data-demo-source="Unstable.CSV" data-demo-autostart="true">Run instability demo</button>
+              <button class="secondary-action" type="button" data-demo-source="stable.CSV" data-demo-autostart="true">Run stable demo</button>
+              <div class="download-links">
+                <a href="Unstable.CSV" download>Download unstable CSV</a>
+                <a href="stable.CSV" download>Download stable CSV</a>
+              </div>
+            </div>
+          </div>
+          <ol>
+            <li><strong>Click Run instability demo</strong><span>The bundled <code>Unstable.CSV</code> loads automatically from this link.</span></li>
+            <li><strong>No download required</strong><span>The console opens and starts replay with built-in physical telemetry.</span></li>
+            <li><strong>Watch the safety loop</strong><span>AI risk, dominant mode, 3D chamber color, and bounded <code>dO/F</code> correction update live.</span></li>
+          </ol>
+        </section>
+
         <section class="quick-grid">
           <article class="panel quick-card">
             <span>Current mode</span>
@@ -310,6 +330,16 @@
             </div>
             <button id="csvButton" type="button">Load CSV</button>
             <input id="csvInput" type="file" accept=".csv,text/csv" />
+          </div>
+
+          <div class="console-hint">
+            <strong>Quick demo:</strong>
+            <span>Load <code>Unstable.CSV</code>, press Start, then watch AI risk, waterfall intensity, chamber color, and <code>dO/F</code> correction.</span>
+          </div>
+
+          <div class="sample-actions" aria-label="Built-in replay shortcuts">
+            <button type="button" data-demo-source="Unstable.CSV" data-demo-autostart="true">Run built-in unstable replay</button>
+            <button type="button" data-demo-source="stable.CSV" data-demo-autostart="true">Run built-in stable replay</button>
           </div>
 
           <label class="range-row">

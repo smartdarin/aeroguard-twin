@@ -564,8 +564,6 @@ function applyReplayAnalysis(analysis) {
     ...analysis,
     modeScores,
     dominant,
-    labelRisk: frame.labelRisk,
-    labelTrim: frame.labelTrim,
   };
 }
 
@@ -1264,7 +1262,6 @@ function parseTelemetryCsv(text) {
       raw[header] = cells[index] ?? "";
     });
 
-    const riskRaw = readNumber(raw, ["labelrisk", "labelriskpercent", "risk", "riskpercent", "riskpct", "instabilityrisk", "instabilityriskpercent"]);
     const freqHz = readNumber(raw, ["frequencyhz", "freqhz", "dominantfrequencyhz", "dominantfreqhz", "modefrequencyhz"]);
     const freqKHz = readNumber(raw, ["frequencykhz", "freqkhz", "dominantfrequencykhz", "dominantfreqkhz", "modefrequencykhz"]);
 
@@ -1273,9 +1270,6 @@ function parseTelemetryCsv(text) {
       mixture: readNumber(raw, ["mixture", "mixtureof", "of", "ofratio", "mixtureratio"]),
       injectorDp: readNumber(raw, ["injectordp", "injectordpmpa", "injectordeltap", "injectordeltapmpa", "dpinjector"]),
       frequencyHz: Number.isFinite(freqHz) ? freqHz : Number.isFinite(freqKHz) ? freqKHz * 1000 : undefined,
-      labelRisk: Number.isFinite(riskRaw) ? (riskRaw > 1 ? riskRaw / 100 : riskRaw) : undefined,
-      labelTrim: readNumber(raw, ["labeltrim", "labeldeltaof", "trim", "dof", "deltaof", "oftrim", "valvetrim"]),
-      labelMargin: readNumber(raw, ["labelmargin", "labelstabilitymargin", "margin", "stabilitymargin", "stabilitymarginpercent"]),
       sampleRate: readNumber(raw, ["samplerate", "samplerateksa", "telemetry", "telemetryksa", "ksamplerate"]),
       growth: readNumber(raw, ["growth", "growthrate", "growthrates"]),
     };
@@ -1294,24 +1288,14 @@ els.csvButton.addEventListener("click", () => {
   els.csvInput.click();
 });
 
-els.csvInput.addEventListener("change", async () => {
-  const file = els.csvInput.files?.[0];
-  if (!file) return;
-
-  const text = await file.text();
-  const rows = parseTelemetryCsv(text);
-  if (!rows.length) {
-    els.dataSource.textContent = "CSV rejected: no telemetry columns";
-    return;
-  }
-
+function loadReplayRows(rows, sourceLabel, autoStart = false) {
   state.replayRows = rows;
   state.replayIndex = 0;
   state.replayHoldTicks = 0;
   state.replayFrame = null;
   state.replayPacket = 0;
   state.replayReady = true;
-  state.running = false;
+  state.running = autoStart;
   state.logRows = [];
   state.heatRows = [];
   state.trend = [];
@@ -1319,14 +1303,53 @@ els.csvInput.addEventListener("change", async () => {
   state.time = 0;
   state.frame = 0;
   state.externalFrame = null;
-  els.dataSource.textContent = `CSV replay: ${file.name}`;
+  state.previousModelRms = 0;
+  state.previousModeEnergy = 0.18;
+  els.dataSource.textContent = sourceLabel;
   els.runToggle.disabled = false;
-  els.runIcon.textContent = "Start";
-  els.edgeState.textContent = "READY";
-  els.edgeState.style.color = "#57d9d0";
+  els.runIcon.textContent = autoStart ? "Pause" : "Start";
+  els.edgeState.textContent = autoStart ? "ARMED" : "READY";
+  els.edgeState.style.color = autoStart ? "#63d98f" : "#57d9d0";
   els.streamClock.textContent = "T+0.00 s";
   renderTelemetryLog();
-  drawEngineTwin({ action: "READY" });
+  drawEngineTwin({ action: autoStart ? "HOLD" : "READY" });
+}
+
+async function loadReplayText(text, sourceLabel, autoStart = false) {
+  const rows = parseTelemetryCsv(text);
+  if (!rows.length) {
+    els.dataSource.textContent = "CSV rejected: no telemetry columns";
+    return false;
+  }
+
+  loadReplayRows(rows, sourceLabel, autoStart);
+  return true;
+}
+
+async function loadBundledReplay(fileName, autoStart = false) {
+  try {
+    const response = await fetch(fileName, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const loaded = await loadReplayText(await response.text(), `Built-in replay: ${fileName}`, autoStart);
+    if (loaded) setView("console");
+  } catch (error) {
+    els.dataSource.textContent = `Built-in replay unavailable: ${fileName}`;
+    setView("console");
+  }
+}
+
+els.csvInput.addEventListener("change", async () => {
+  const file = els.csvInput.files?.[0];
+  if (!file) return;
+
+  const text = await file.text();
+  await loadReplayText(text, `CSV replay: ${file.name}`);
+});
+
+document.querySelectorAll("[data-demo-source]").forEach((button) => {
+  button.addEventListener("click", () => {
+    loadBundledReplay(button.dataset.demoSource, button.dataset.demoAutostart === "true");
+  });
 });
 
 els.runToggle.addEventListener("click", () => {

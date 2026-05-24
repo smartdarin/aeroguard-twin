@@ -340,7 +340,7 @@ function nearestLabel(row, centroids) {
 
 function writeReplayCsv(windows, riskHead) {
   const rows = [
-    "pressure_mpa,mixture_of,injector_dp_mpa,frequency_hz,label_risk_percent,label_delta_of,label_stability_margin,sample_rate_ksa,growth_rate,source_file",
+    "pressure_mpa,mixture_of,injector_dp_mpa,frequency_hz,sample_rate_ksa,growth_rate,source_file",
   ];
   let trim = 0;
   windows.forEach((row) => {
@@ -350,16 +350,12 @@ function writeReplayCsv(windows, riskHead) {
     const pressure = row.raw.meanPressure / 1.75;
     const mixture = 5.92 + trim;
     const injectorDp = 1.34 + risk * 0.35;
-    const margin = Math.round(clamp((1 - risk) * 100 - Math.abs(trim) * 24, 0, 99));
     rows.push(
       [
         pressure.toFixed(3),
         mixture.toFixed(3),
         injectorDp.toFixed(3),
         Math.round(mode.freq),
-        (risk * 100).toFixed(1),
-        trim.toFixed(3),
-        margin,
         (row.sampleRate / 1000).toFixed(2),
         row.raw.growth.toFixed(4),
         `"${row.file}"`,

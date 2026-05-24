@@ -45,9 +45,15 @@ Note: running through Live Server or GitHub Pages is recommended because the das
 ## Demo Flow
 
 1. Open the dashboard.
-2. Go to `Operator Console`.
-3. Click `Load CSV`.
-4. Select either:
+2. On `Overview`, click `Run instability demo` for the fastest assessor-friendly path.
+3. The app opens `Operator Console`, loads the bundled `Unstable.CSV`, and starts replay automatically.
+4. Watch the AI risk, dominant mode, waterfall intensity, 3D chamber color, and bounded `dO/F` correction update live.
+
+Manual mode:
+
+1. Go to `Operator Console`.
+2. Click `Load CSV`.
+3. Select either:
 
 ```text
 stable.CSV
@@ -55,8 +61,8 @@ Unstable.CSV
 telemetry_cfd_model_replay.csv
 ```
 
-5. Click `Start`.
-6. Move between `System View`, `CFD + AI Model`, and `Operator Console` to show the full safety loop.
+4. Click `Start`.
+5. Move between `System View`, `CFD + AI Model`, and `Operator Console` to show the full safety loop.
 
 The replay does not run before a CSV is loaded and `Start` is pressed.
 
@@ -113,7 +119,7 @@ Training windows: 47
 Hidden neurons: 8
 ```
 
-Important: `label_risk_percent`, `label_delta_of`, and `label_stability_margin` in CSV files are validation labels only. They do not directly drive the risk gauge, chamber color, or correction command. The displayed risk is computed by the trained model.
+Important: the replay CSV files contain physical telemetry only. They do not include a risk column. The displayed risk is computed by the trained model.
 
 ## Retraining
 
@@ -132,13 +138,13 @@ telemetry_cfd_model_replay.csv
 
 ## CSV Format
 
-Expected replay columns:
+Expected public replay columns:
 
 ```csv
-pressure_mpa,mixture_of,injector_dp_mpa,frequency_hz,label_risk_percent,label_delta_of,label_stability_margin,sample_rate_ksa,growth_rate
+pressure_mpa,mixture_of,injector_dp_mpa,frequency_hz,sample_rate_ksa,growth_rate
 ```
 
-The dashboard uses physical telemetry columns to synthesize the pressure/acoustic stream and then runs the edge model on extracted features. Label columns are retained only for validation and presentation traceability.
+The dashboard uses these physical telemetry columns to synthesize the pressure/acoustic stream and then runs the edge model on extracted features.
 
 ## Repository Files
 
