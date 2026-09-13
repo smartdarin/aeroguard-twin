@@ -43,7 +43,7 @@ const scenarios = {
     drive: 0.08,
   },
   suppress: {
-    label: "Closed-loop suppression demo",
+    label: "Closed-loop suppression",
     modeIndex: 1,
     target: (age) => 0.12 + 0.62 / (1 + Math.exp(-(age - 6) * 0.95)),
     drive: 0.03,
@@ -61,6 +61,7 @@ const els = {
   waveform: document.getElementById("waveformCanvas"),
   trend: document.getElementById("trendCanvas"),
   engine: document.getElementById("engineCanvas"),
+  engineCad: document.getElementById("engineCadCanvas"),
   riskGauge: document.getElementById("riskGauge"),
   riskValue: document.getElementById("riskValue"),
   topRisk: document.getElementById("topRisk"),
@@ -117,6 +118,8 @@ const els = {
   barL2: document.getElementById("barL2"),
   barT1: document.getElementById("barT1"),
   barT2: document.getElementById("barT2"),
+  engineReset: document.getElementById("engineReset"),
+  engineViewReadout: document.getElementById("engineViewReadout"),
 };
 
 const ctx = {
@@ -163,6 +166,20 @@ const state = {
     sampleRate: 48,
     margin: 92,
     sensorBias: 0,
+  },
+  engineView: {
+    yaw: 0.35,
+    pitch: 0.14,
+    zoom: 1,
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+  },
+  engineCad: {
+    ready: false,
+    loading: false,
+    failed: false,
+    api: null,
   },
 };
 
@@ -636,7 +653,7 @@ function roundedPath(context, x, y, width, height, radius) {
   context.closePath();
 }
 
-function drawEngineTwin({
+function drawEngineTwinLegacy({
   risk = state.risk,
   mode = state.dominant,
   pressure,
@@ -652,6 +669,17 @@ function drawEngineTwin({
   const { width, height } = canvas;
   const riskValue = clamp(risk, 0.02, 0.99);
   const color = riskColor(riskValue);
+  const material = {
+    injector: "#343b38",
+    injectorAccent: "#aeb7b0",
+    chamberShell: "#8b928c",
+    chamberShellWarm: "#9b7657",
+    chamberLiner: "#b87445",
+    chamberLinerHot: "#d79a63",
+    nozzle: "#1b1d1f",
+    nozzleAccent: "#606b68",
+    graphite: "#070807",
+  };
   const freq = Number.isFinite(displayFreq) ? displayFreq : (mode?.freq ?? modes[0].freq);
   const frequencyRatio = clamp((freq - minFreq) / (maxFreq - minFreq), 0, 1);
   const pulse = 0.5 + Math.sin(state.time * 5.5) * 0.5;
@@ -907,6 +935,849 @@ function drawEngineTwin({
   context.fillText(`${(freq / 1000).toFixed(3)} kHz | ${Math.round(riskValue * 100)}% risk | ${action}`, width * 0.045, height * 0.09);
   context.fillText(`dO/F ${trim.toFixed(3)}`, width * 0.045, height * 0.14);
   context.restore();
+}
+
+function updateEngineViewReadout() {
+  if (!els.engineViewReadout) return;
+  const yaw = Math.round((state.engineView.yaw * 180) / Math.PI);
+  const pitch = Math.round((state.engineView.pitch * 180) / Math.PI);
+  const zoom = Math.round(state.engineView.zoom * 100);
+  els.engineViewReadout.textContent = `Yaw ${yaw} | Pitch ${pitch} | Zoom ${zoom}%`;
+}
+
+function resetEngineView() {
+  state.engineView.yaw = 0.35;
+  state.engineView.pitch = 0.14;
+  state.engineView.zoom = 1;
+  updateEngineViewReadout();
+  drawEngineTwin();
+}
+
+function shadedRgba(hex, light, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  const level = clamp(light, 0.18, 1.45);
+  return `rgba(${Math.min(255, Math.round(r * level))}, ${Math.min(255, Math.round(g * level))}, ${Math.min(255, Math.round(b * level))}, ${alpha})`;
+}
+
+function buildEngineCamera(width, height) {
+  const view = state.engineView;
+  const scale = Math.min(width / 6.8, height / 3.15) * view.zoom;
+  return {
+    yaw: view.yaw,
+    pitch: view.pitch,
+    cosY: Math.cos(view.yaw),
+    sinY: Math.sin(view.yaw),
+    cosP: Math.cos(view.pitch),
+    sinP: Math.sin(view.pitch),
+    scale,
+    cx: width * 0.48,
+    cy: height * 0.49,
+    focal: 5.2,
+  };
+}
+
+function rotate3d(point, camera) {
+  const x1 = point.x * camera.cosY - point.z * camera.sinY;
+  const z1 = point.x * camera.sinY + point.z * camera.cosY;
+  const y1 = point.y * camera.cosP - z1 * camera.sinP;
+  const z2 = point.y * camera.sinP + z1 * camera.cosP;
+  return { x: x1, y: y1, z: z2 };
+}
+
+function project3d(point, camera) {
+  const rotated = rotate3d(point, camera);
+  const perspective = camera.focal / Math.max(1.2, camera.focal + rotated.z * 0.42);
+  return {
+    x: camera.cx + rotated.x * camera.scale * perspective,
+    y: camera.cy + rotated.y * camera.scale * perspective,
+    z: rotated.z,
+    k: perspective,
+  };
+}
+
+function projectedPath(context, points, camera) {
+  points.forEach((point, index) => {
+    const projected = project3d(point, camera);
+    if (index === 0) context.moveTo(projected.x, projected.y);
+    else context.lineTo(projected.x, projected.y);
+  });
+}
+
+function projectedDepth(points, camera) {
+  return points.reduce((sum, point) => sum + rotate3d(point, camera).z, 0) / points.length;
+}
+
+function drawProjectedPolygon(context, points, camera, fillStyle, strokeStyle, lineWidth = 1) {
+  context.beginPath();
+  projectedPath(context, points, camera);
+  context.closePath();
+  if (fillStyle) {
+    context.fillStyle = fillStyle;
+    context.fill();
+  }
+  if (strokeStyle) {
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = lineWidth;
+    context.stroke();
+  }
+}
+
+function drawProjectedPolyline(context, points, camera, strokeStyle, lineWidth = 1, close = false) {
+  context.beginPath();
+  projectedPath(context, points, camera);
+  if (close) context.closePath();
+  context.strokeStyle = strokeStyle;
+  context.lineWidth = lineWidth;
+  context.stroke();
+}
+
+function tubePoint(x, radius, theta) {
+  return { x, y: Math.sin(theta) * radius, z: Math.cos(theta) * radius };
+}
+
+function makeTubePolygons({ x0, x1, r0, r1, segments = 28, baseColor = "#13241e", accentColor = "#57d9d0", alpha = 0.72, camera }) {
+  const polygons = [];
+  for (let i = 0; i < segments; i += 1) {
+    const a = (Math.PI * 2 * i) / segments;
+    const b = (Math.PI * 2 * (i + 1)) / segments;
+    const mid = (a + b) * 0.5;
+    const points = [
+      tubePoint(x0, r0, a),
+      tubePoint(x1, r1, a),
+      tubePoint(x1, r1, b),
+      tubePoint(x0, r0, b),
+    ];
+    const normal = rotate3d({ x: 0, y: Math.sin(mid), z: Math.cos(mid) }, camera);
+    const facing = clamp((1 - normal.z) * 0.5, 0, 1);
+    const topLight = clamp(-normal.y, 0, 1);
+    const light = 0.42 + facing * 0.32 + topLight * 0.3;
+    polygons.push({
+      points,
+      depth: projectedDepth(points, camera),
+      fill: shadedRgba(baseColor, light, alpha),
+      accent: shadedRgba(accentColor, 0.7 + facing * 0.4, 0.06 + facing * 0.12),
+    });
+  }
+  return polygons;
+}
+
+function drawTube(context, camera, options) {
+  const polygons = makeTubePolygons({ ...options, camera });
+  polygons
+    .sort((a, b) => b.depth - a.depth)
+    .forEach((polygon) => {
+      drawProjectedPolygon(context, polygon.points, camera, polygon.fill, "rgba(255, 255, 255, 0.018)");
+      drawProjectedPolygon(context, polygon.points, camera, polygon.accent, null);
+    });
+}
+
+function ringPoints(x, radius, segments = 72) {
+  const points = [];
+  for (let i = 0; i <= segments; i += 1) {
+    const theta = (Math.PI * 2 * i) / segments;
+    points.push(tubePoint(x, radius, theta));
+  }
+  return points;
+}
+
+function drawDisk(context, camera, x, radius, fillStyle, strokeStyle, lineWidth = 1) {
+  const points = ringPoints(x, radius, 72);
+  drawProjectedPolygon(context, points, camera, fillStyle, strokeStyle, lineWidth);
+}
+
+function draw3dLabel(context, text, point, camera, options = {}) {
+  const projected = project3d(point, camera);
+  context.save();
+  context.fillStyle = options.color || "rgba(240, 245, 239, 0.86)";
+  context.textAlign = options.align || "center";
+  context.font = `${options.weight || 850} ${options.size || 14}px system-ui`;
+  context.fillText(text, projected.x + (options.dx || 0), projected.y + (options.dy || 0));
+  context.restore();
+}
+
+function drawProjectedPipe(context, camera, points, strokeStyle, lineWidth, glowStyle = null) {
+  context.save();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  if (glowStyle) {
+    context.shadowColor = glowStyle;
+    context.shadowBlur = lineWidth * 2.2;
+  }
+  drawProjectedPolyline(context, points, camera, strokeStyle, lineWidth);
+  context.restore();
+}
+
+function drawProjectedNode(context, camera, point, radius, fillStyle, strokeStyle, lineWidth = 1) {
+  const projected = project3d(point, camera);
+  context.save();
+  context.beginPath();
+  context.arc(projected.x, projected.y, Math.max(3, radius * camera.scale * projected.k), 0, Math.PI * 2);
+  context.fillStyle = fillStyle;
+  context.fill();
+  if (strokeStyle) {
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = lineWidth;
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawFlangeBolts(context, camera, x, radius, boltRadius, material) {
+  const boltAngles = [-2.45, -1.7, -0.95, -0.25, 0.42, 1.15, 1.92, 2.64];
+  boltAngles.forEach((theta) => {
+    drawProjectedNode(
+      context,
+      camera,
+      tubePoint(x, radius, theta),
+      boltRadius,
+      "rgba(18, 20, 19, 0.94)",
+      shadedRgba(material.injectorAccent, 0.95, 0.5),
+      1,
+    );
+  });
+}
+
+function drawEngineTwin({
+  risk = state.risk,
+  mode = state.dominant,
+  pressure,
+  displayFreq,
+  trim = state.controlTrim,
+  action = "IDLE",
+} = {}) {
+  const canvas = els.engine;
+  if (!canvas) return;
+  resizeCanvas(canvas);
+
+  const context = ctx.engine;
+  const { width, height } = canvas;
+  const camera = buildEngineCamera(width, height);
+  const riskValue = clamp(risk, 0.02, 0.99);
+  const color = riskColor(riskValue);
+  const material = {
+    injector: "#343b38",
+    injectorAccent: "#aeb7b0",
+    chamberShell: "#8b928c",
+    chamberShellWarm: "#9b7657",
+    chamberLiner: "#b87445",
+    chamberLinerHot: "#d79a63",
+    nozzle: "#1b1d1f",
+    nozzleAccent: "#606b68",
+    graphite: "#070807",
+  };
+  const freq = Number.isFinite(displayFreq) ? displayFreq : (mode?.freq ?? modes[0].freq);
+  const frequencyRatio = clamp((freq - minFreq) / (maxFreq - minFreq), 0, 1);
+  const pulse = 0.5 + Math.sin(state.time * 5.5) * 0.5;
+
+  updateEngineViewReadout();
+  context.clearRect(0, 0, width, height);
+
+  const bg = context.createLinearGradient(0, 0, width, height);
+  bg.addColorStop(0, "#070808");
+  bg.addColorStop(0.48, "#101211");
+  bg.addColorStop(1, "#050606");
+  context.fillStyle = bg;
+  context.fillRect(0, 0, width, height);
+
+  context.save();
+  context.strokeStyle = "rgba(87, 217, 208, 0.08)";
+  context.lineWidth = Math.max(1, width / 1050);
+  for (let z = -1.8; z <= 1.81; z += 0.45) {
+    drawProjectedPolyline(context, [{ x: -3.4, y: 1.05, z }, { x: 3.2, y: 1.05, z }], camera, "rgba(87, 217, 208, 0.08)");
+  }
+  for (let x = -3.2; x <= 3.21; x += 0.55) {
+    drawProjectedPolyline(context, [{ x, y: 1.05, z: -1.9 }, { x, y: 1.05, z: 1.9 }], camera, "rgba(87, 217, 208, 0.06)");
+  }
+  context.restore();
+
+  const pipeSteel = "rgba(175, 184, 178, 0.76)";
+  const pipeShadow = "rgba(115, 145, 150, 0.32)";
+  const cryoBlue = "rgba(133, 202, 232, 0.74)";
+  const copperPipe = "rgba(183, 118, 73, 0.78)";
+  drawProjectedPipe(
+    context,
+    camera,
+    [
+      { x: -2.75, y: -0.52, z: -0.52 },
+      { x: -2.25, y: -0.92, z: -0.46 },
+      { x: -1.55, y: -1.02, z: -0.32 },
+      { x: -1.1, y: -0.66, z: -0.42 },
+      { x: -1.62, y: -0.34, z: -0.5 },
+    ],
+    cryoBlue,
+    Math.max(3, width / 330),
+    pipeShadow,
+  );
+  drawProjectedPipe(
+    context,
+    camera,
+    [
+      { x: -2.5, y: 0.55, z: 0.44 },
+      { x: -2.02, y: 0.88, z: 0.36 },
+      { x: -1.25, y: 0.84, z: 0.22 },
+      { x: -0.82, y: 0.54, z: 0.32 },
+      { x: -0.18, y: 0.48, z: 0.42 },
+    ],
+    pipeSteel,
+    Math.max(2.5, width / 390),
+    "rgba(255, 255, 255, 0.08)",
+  );
+  drawProjectedPipe(
+    context,
+    camera,
+    [
+      { x: -1.12, y: -0.82, z: 0.38 },
+      { x: -0.58, y: -0.74, z: 0.48 },
+      { x: 0.12, y: -0.54, z: 0.46 },
+      { x: 0.72, y: -0.42, z: 0.32 },
+    ],
+    copperPipe,
+    Math.max(2.5, width / 430),
+    "rgba(184, 116, 69, 0.24)",
+  );
+
+  context.save();
+  context.shadowColor = "rgba(0, 0, 0, 0.72)";
+  context.shadowBlur = height * 0.05;
+  context.shadowOffsetY = height * 0.025;
+
+  drawTube(context, camera, {
+    x0: -2.9,
+    x1: -2.25,
+    r0: 0.72,
+    r1: 0.72,
+    baseColor: material.injector,
+    accentColor: material.injectorAccent,
+    alpha: 0.88,
+  });
+  drawTube(context, camera, {
+    x0: 1.3,
+    x1: 2.65,
+    r0: 0.43,
+    r1: 0.84,
+    baseColor: material.nozzle,
+    accentColor: material.nozzleAccent,
+    alpha: 0.86,
+  });
+  drawTube(context, camera, {
+    x0: -2.05,
+    x1: 1.35,
+    r0: 0.66,
+    r1: 0.66,
+    baseColor: riskValue > 0.72 ? material.chamberShellWarm : material.chamberShell,
+    accentColor: material.injectorAccent,
+    alpha: 0.62,
+  });
+  drawTube(context, camera, {
+    x0: -1.82,
+    x1: 1.15,
+    r0: 0.35 + riskValue * 0.04,
+    r1: 0.35 + riskValue * 0.04,
+    baseColor: riskValue > 0.72 ? material.chamberLinerHot : material.chamberLiner,
+    accentColor: material.chamberLinerHot,
+    alpha: 0.42 + riskValue * 0.12,
+  });
+  context.restore();
+
+  drawDisk(context, camera, -2.25, 0.74, "rgba(26, 30, 28, 0.76)", "rgba(174, 183, 176, 0.55)", Math.max(1.5, width / 650));
+  drawDisk(context, camera, 2.65, 0.84, "rgba(5, 6, 6, 0.78)", "rgba(96, 107, 104, 0.5)", Math.max(1.5, width / 760));
+
+  [-1.92, -1.48, -1.04, -0.6, -0.16, 0.28, 0.72, 1.12].forEach((x, index) => {
+    drawProjectedPolyline(
+      context,
+      ringPoints(x, 0.675, 88),
+      camera,
+      index % 2 === 0 ? "rgba(220, 218, 202, 0.22)" : "rgba(184, 116, 69, 0.18)",
+      Math.max(1, width / 980),
+      true,
+    );
+  });
+  drawProjectedPolyline(context, ringPoints(-2.05, 0.71, 88), camera, "rgba(174, 183, 176, 0.58)", Math.max(1.5, width / 720), true);
+  drawProjectedPolyline(context, ringPoints(1.3, 0.48, 88), camera, "rgba(183, 118, 73, 0.62)", Math.max(1.5, width / 720), true);
+  drawProjectedPolyline(context, ringPoints(2.65, 0.84, 96), camera, "rgba(180, 184, 176, 0.42)", Math.max(1.8, width / 690), true);
+  drawFlangeBolts(context, camera, -2.05, 0.73, 0.024, material);
+  drawFlangeBolts(context, camera, 1.3, 0.5, 0.018, material);
+
+  drawProjectedNode(
+    context,
+    camera,
+    { x: -1.68, y: -1.03, z: -0.2 },
+    0.2,
+    "rgba(42, 46, 43, 0.94)",
+    "rgba(174, 183, 176, 0.58)",
+    Math.max(1.5, width / 850),
+  );
+  drawProjectedNode(
+    context,
+    camera,
+    { x: -1.18, y: -0.9, z: 0.3 },
+    0.17,
+    "rgba(35, 38, 36, 0.94)",
+    "rgba(174, 183, 176, 0.5)",
+    Math.max(1.5, width / 850),
+  );
+  drawProjectedNode(
+    context,
+    camera,
+    { x: -1.42, y: -0.72, z: 0.05 },
+    0.12,
+    "rgba(132, 91, 58, 0.92)",
+    "rgba(215, 154, 99, 0.54)",
+    Math.max(1.2, width / 980),
+  );
+  drawProjectedPipe(
+    context,
+    camera,
+    [
+      { x: -1.68, y: -1.03, z: -0.2 },
+      { x: -1.42, y: -0.72, z: 0.05 },
+      { x: -1.18, y: -0.9, z: 0.3 },
+    ],
+    "rgba(150, 156, 151, 0.68)",
+    Math.max(2, width / 520),
+  );
+
+  const holes = [
+    [-0.34, -0.36], [0, -0.38], [0.34, -0.36],
+    [-0.22, 0], [0.22, 0],
+    [-0.34, 0.36], [0, 0.38], [0.34, 0.36],
+  ];
+  holes.forEach(([y, z]) => {
+    const p = project3d({ x: -2.22, y, z }, camera);
+    context.beginPath();
+    context.arc(p.x, p.y, Math.max(3.2, camera.scale * 0.045 * p.k), 0, Math.PI * 2);
+    context.fillStyle = "rgba(11, 14, 13, 0.92)";
+    context.fill();
+    context.strokeStyle = "rgba(174, 183, 176, 0.42)";
+    context.lineWidth = Math.max(1, width / 1200);
+    context.stroke();
+  });
+
+  context.save();
+  context.strokeStyle = rgba(color, 0.58 + riskValue * 0.28);
+  context.lineWidth = Math.max(2, width / 680);
+  [-0.1, 0, 0.1].forEach((offset, index) => {
+    const x = -1.82 + frequencyRatio * 2.95 + offset + Math.sin(state.time * 2.6 + index) * 0.03;
+    drawProjectedPolyline(context, ringPoints(x, 0.47 + riskValue * 0.05, 96), camera, index === 1 ? rgba(color, 0.86) : rgba(color, 0.46), context.lineWidth, true);
+  });
+  context.restore();
+
+  const lobeCenter = project3d({ x: -1.82 + frequencyRatio * 2.95, y: 0, z: -0.06 }, camera);
+  const lobeRadius = camera.scale * lobeCenter.k * (0.32 + riskValue * 0.35 + pulse * riskValue * 0.08);
+  const lobeGradient = context.createRadialGradient(lobeCenter.x, lobeCenter.y, 0, lobeCenter.x, lobeCenter.y, lobeRadius);
+  lobeGradient.addColorStop(0, rgba(color, 0.86));
+  lobeGradient.addColorStop(0.45, rgba(color, 0.28 + riskValue * 0.22));
+  lobeGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  context.fillStyle = lobeGradient;
+  context.beginPath();
+  context.arc(lobeCenter.x, lobeCenter.y, lobeRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.save();
+  context.strokeStyle = rgba(color, 0.58 + riskValue * 0.28);
+  context.lineWidth = Math.max(2, width / 780);
+  context.beginPath();
+  for (let i = 0; i <= 120; i += 1) {
+    const x = -1.78 + (2.85 * i) / 120;
+    const envelope = Math.sin((i / 120) * Math.PI);
+    const y = Math.sin(i * 0.4 + state.time * 8.5) * 0.14 * envelope * riskValue;
+    const point = project3d({ x, y, z: -0.52 }, camera);
+    if (i === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  }
+  context.stroke();
+  context.restore();
+
+  const sensorTop = project3d({ x: -0.18, y: 0.67, z: 0 }, camera);
+  const sensorBase = project3d({ x: -0.18, y: 1.05, z: 0 }, camera);
+  context.save();
+  context.strokeStyle = "rgba(87, 217, 208, 0.62)";
+  context.lineWidth = Math.max(2, width / 730);
+  context.beginPath();
+  context.moveTo(sensorTop.x, sensorTop.y);
+  context.lineTo(sensorBase.x, sensorBase.y);
+  context.stroke();
+  context.beginPath();
+  context.arc(sensorBase.x, sensorBase.y, Math.max(8, width / 118), 0, Math.PI * 2);
+  context.fillStyle = "#070a09";
+  context.fill();
+  context.strokeStyle = "#57d9d0";
+  context.stroke();
+  context.restore();
+
+  const plumeCenter = project3d({ x: 3.08, y: 0, z: 0 }, camera);
+  const plume = context.createRadialGradient(plumeCenter.x, plumeCenter.y, 0, plumeCenter.x, plumeCenter.y, camera.scale * 0.72);
+  plume.addColorStop(0, riskValue > 0.72 ? rgba(color, 0.28) : "rgba(150, 210, 255, 0.14)");
+  plume.addColorStop(0.55, "rgba(190, 210, 220, 0.06)");
+  plume.addColorStop(1, "rgba(0, 0, 0, 0)");
+  context.fillStyle = plume;
+  context.beginPath();
+  context.ellipse(plumeCenter.x, plumeCenter.y, camera.scale * 0.74, camera.scale * 0.36, -state.engineView.yaw * 0.45, 0, Math.PI * 2);
+  context.fill();
+
+  const fontScale = Math.max(1, width / 1180);
+  draw3dLabel(context, "INJECTOR FACE", { x: -2.6, y: 0.95, z: 0 }, camera, {
+    color: "rgba(240, 245, 239, 0.82)",
+    size: Math.round(13 * fontScale),
+    weight: 900,
+  });
+  draw3dLabel(context, "COMBUSTION CHAMBER CUTAWAY", { x: -0.35, y: -0.28, z: -0.52 }, camera, {
+    color: "rgba(188, 207, 193, 0.9)",
+    size: Math.round(12 * fontScale),
+    weight: 850,
+  });
+  draw3dLabel(context, Number.isFinite(pressure) ? `Pch ${pressure.toFixed(3)} MPa` : "Pch --", { x: -0.35, y: 0.04, z: -0.55 }, camera, {
+    color: "#f0f5ef",
+    size: Math.round(25 * fontScale),
+    weight: 900,
+  });
+  draw3dLabel(context, "NOZZLE", { x: 2.0, y: 0.08, z: -0.65 }, camera, {
+    color: "rgba(188, 207, 193, 0.86)",
+    size: Math.round(13 * fontScale),
+    weight: 900,
+  });
+  draw3dLabel(context, "PIEZO PRESSURE SENSOR", { x: -0.18, y: 1.25, z: 0 }, camera, {
+    color: "rgba(87, 217, 208, 0.92)",
+    size: Math.round(12 * fontScale),
+    weight: 850,
+  });
+  draw3dLabel(context, `${mode?.key ?? "--"} acoustic lobe`, { x: -1.82 + frequencyRatio * 2.95, y: -0.74, z: -0.08 }, camera, {
+    color: rgba(color, 0.96),
+    size: Math.round(14 * fontScale),
+    weight: 900,
+  });
+
+  context.save();
+  context.fillStyle = "rgba(240, 245, 239, 0.9)";
+  context.font = `850 ${Math.round(13 * fontScale)}px system-ui`;
+  context.textAlign = "left";
+  context.fillText(`${(freq / 1000).toFixed(3)} kHz | ${Math.round(riskValue * 100)}% risk | ${action}`, width * 0.04, height * 0.09);
+  context.fillText(`dO/F ${trim.toFixed(3)}`, width * 0.04, height * 0.14);
+  context.fillStyle = "rgba(174, 183, 176, 0.86)";
+  context.fillText("CE-20 REFERENCE-CLASS CRYOGENIC ENGINE", width * 0.04, height * 0.21);
+  context.restore();
+
+  renderEngineCad({ risk, mode, pressure, displayFreq: freq, trim, action });
+}
+
+async function initEngineCad() {
+  if (!els.engineCad || state.engineCad.ready || state.engineCad.loading || state.engineCad.failed) return;
+  state.engineCad.loading = true;
+
+  try {
+    const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js");
+    const canvas = els.engineCad;
+    const shell = canvas.closest(".engine-schematic");
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+      powerPreference: "high-performance",
+    });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x090a0a);
+    scene.fog = new THREE.Fog(0x090a0a, 7.5, 14);
+
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 40);
+    const root = new THREE.Group();
+    root.position.y = 0.12;
+    scene.add(root);
+
+    const materials = {
+      shell: new THREE.MeshPhysicalMaterial({
+        color: 0x868d88,
+        metalness: 0.86,
+        roughness: 0.5,
+        clearcoat: 0.18,
+        clearcoatRoughness: 0.52,
+        transparent: true,
+        opacity: 0.96,
+        side: THREE.DoubleSide,
+      }),
+      liner: new THREE.MeshStandardMaterial({
+        color: 0xb87445,
+        metalness: 0.68,
+        roughness: 0.34,
+        emissive: 0x2b1208,
+      }),
+      injector: new THREE.MeshStandardMaterial({
+        color: 0x343b38,
+        metalness: 0.82,
+        roughness: 0.4,
+      }),
+      dark: new THREE.MeshStandardMaterial({
+        color: 0x111515,
+        metalness: 0.72,
+        roughness: 0.64,
+      }),
+      nozzle: new THREE.MeshStandardMaterial({
+        color: 0x22272a,
+        metalness: 0.32,
+        roughness: 0.82,
+        side: THREE.DoubleSide,
+      }),
+      nozzleRim: new THREE.MeshStandardMaterial({
+        color: 0x454d4b,
+        metalness: 0.62,
+        roughness: 0.5,
+      }),
+      pipe: new THREE.MeshStandardMaterial({
+        color: 0xb7bdb7,
+        metalness: 0.9,
+        roughness: 0.26,
+      }),
+      cryoPipe: new THREE.MeshStandardMaterial({
+        color: 0x88c8de,
+        metalness: 0.75,
+        roughness: 0.3,
+      }),
+      copperPipe: new THREE.MeshStandardMaterial({
+        color: 0xb87445,
+        metalness: 0.78,
+        roughness: 0.35,
+      }),
+      bolt: new THREE.MeshStandardMaterial({
+        color: 0xd0d4cd,
+        metalness: 0.9,
+        roughness: 0.32,
+      }),
+      riskGlow: new THREE.MeshBasicMaterial({
+        color: 0x63d98f,
+        transparent: true,
+        opacity: 0.05,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      ringGlow: new THREE.MeshBasicMaterial({
+        color: 0x63d98f,
+        transparent: true,
+        opacity: 0.16,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    };
+
+    const cylinderX = (radiusTop, radiusBottom, length, material, x, segments = 80, openEnded = false) => {
+      const geometry = new THREE.CylinderGeometry(radiusTop, radiusBottom, length, segments, 1, openEnded);
+      geometry.rotateZ(Math.PI / 2);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.x = x;
+      root.add(mesh);
+      return mesh;
+    };
+
+    const torusX = (x, radius, tube, material, segments = 96) => {
+      const geometry = new THREE.TorusGeometry(radius, tube, 12, segments);
+      geometry.rotateY(Math.PI / 2);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.x = x;
+      root.add(mesh);
+      return mesh;
+    };
+
+    const tube = (points, radius, material, tubularSegments = 72) => {
+      const curve = new THREE.CatmullRomCurve3(points.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
+      const geometry = new THREE.TubeGeometry(curve, tubularSegments, radius, 12, false);
+      const mesh = new THREE.Mesh(geometry, material);
+      root.add(mesh);
+      return mesh;
+    };
+
+    const bellProfile = [
+      new THREE.Vector2(0.34, 0.78),
+      new THREE.Vector2(0.38, 0.58),
+      new THREE.Vector2(0.46, 0.32),
+      new THREE.Vector2(0.58, 0.04),
+      new THREE.Vector2(0.72, -0.3),
+      new THREE.Vector2(0.88, -0.68),
+      new THREE.Vector2(1.04, -1.02),
+      new THREE.Vector2(1.12, -1.2),
+    ];
+    const nozzle = new THREE.Mesh(new THREE.LatheGeometry(bellProfile, 112), materials.nozzle);
+    nozzle.geometry.rotateZ(Math.PI / 2);
+    nozzle.position.x = 1.52;
+    root.add(nozzle);
+
+    const chamberShell = cylinderX(0.5, 0.58, 1.38, materials.shell, -0.48, 96, false);
+    const chamberLiner = cylinderX(0.34, 0.4, 1.08, materials.liner, -0.42, 96, true);
+    const injector = cylinderX(0.6, 0.62, 0.38, materials.injector, -1.33, 80, false);
+    const throat = cylinderX(0.34, 0.42, 0.2, materials.liner, 0.34, 64, false);
+
+    const ribs = [];
+    [-0.98, -0.42, 0.08].forEach((x) => {
+      ribs.push(torusX(x, 0.585, 0.009, materials.nozzleRim, 96));
+    });
+
+    const coolingLines = [];
+
+    const flanges = [
+      torusX(-1.06, 0.64, 0.035, materials.pipe),
+      torusX(0.28, 0.44, 0.03, materials.copperPipe),
+      torusX(2.52, 1.03, 0.018, materials.nozzleRim),
+    ];
+    const exitShadow = cylinderX(1.03, 1.03, 0.018, materials.dark, 2.72, 96, false);
+
+    const addBolts = (x, radius, count, boltRadius) => {
+      for (let i = 0; i < count; i += 1) {
+        const theta = (Math.PI * 2 * i) / count;
+        const bolt = new THREE.Mesh(new THREE.SphereGeometry(boltRadius, 12, 8), materials.bolt);
+        bolt.position.set(x, Math.sin(theta) * radius, Math.cos(theta) * radius);
+        root.add(bolt);
+      }
+    };
+    addBolts(-1.06, 0.66, 14, 0.024);
+    addBolts(0.28, 0.47, 12, 0.019);
+    addBolts(-1.54, 0.44, 10, 0.026);
+
+    const injectorHoles = [
+      [-0.36, -0.34], [0, -0.38], [0.36, -0.34],
+      [-0.22, 0], [0.22, 0],
+      [-0.36, 0.34], [0, 0.38], [0.36, 0.34],
+    ];
+    injectorHoles.forEach(([y, z]) => {
+      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.035, 18), materials.dark);
+      hole.geometry.rotateZ(Math.PI / 2);
+      hole.position.set(-1.54, y * 0.82, z * 0.82);
+      root.add(hole);
+    });
+
+    tube([[-1.72, -0.5, -0.48], [-1.36, -0.92, -0.5], [-0.76, -1.02, -0.36], [-0.28, -0.62, -0.48], [-0.82, -0.3, -0.54]], 0.043, materials.cryoPipe);
+    tube([[-1.62, 0.48, 0.48], [-1.22, 0.78, 0.42], [-0.48, 0.78, 0.25], [0.05, 0.48, 0.38], [0.46, 0.38, 0.45]], 0.036, materials.pipe);
+    tube([[-0.94, -0.86, 0.42], [-0.38, -0.76, 0.52], [0.12, -0.54, 0.5], [0.42, -0.34, 0.3]], 0.032, materials.copperPipe);
+    tube([[-0.98, -0.94, -0.08], [-0.86, -0.68, 0.02], [-0.58, -0.86, 0.3]], 0.038, materials.pipe, 42);
+
+    const pumpA = cylinderX(0.22, 0.22, 0.24, materials.injector, -0.98, 48, false);
+    pumpA.rotation.x = Math.PI / 2;
+    pumpA.position.y = -1.02;
+    pumpA.position.z = -0.16;
+    const pumpB = cylinderX(0.18, 0.18, 0.22, materials.injector, -0.56, 48, false);
+    pumpB.rotation.x = Math.PI / 2;
+    pumpB.position.y = -0.88;
+    pumpB.position.z = 0.32;
+    const gasGenerator = new THREE.Mesh(new THREE.SphereGeometry(0.16, 28, 16), materials.copperPipe);
+    gasGenerator.position.set(-0.78, -0.68, 0.08);
+    root.add(gasGenerator);
+
+    const brackets = [
+      [-1.0, 0.72, 0.0],
+      [-0.32, 0.73, 0.0],
+      [0.26, 0.62, 0.0],
+    ];
+    brackets.forEach(([x, y, z]) => {
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.28, 0.04), materials.dark);
+      bracket.position.set(x, y, z);
+      root.add(bracket);
+    });
+
+    const riskGlow = new THREE.Mesh(new THREE.SphereGeometry(0.48, 48, 24), materials.riskGlow);
+    riskGlow.scale.set(0.9, 0.42, 0.42);
+    root.add(riskGlow);
+
+    const acousticRings = [0, 1, 2].map((index) => {
+      const ring = torusX(-0.45 + index * 0.1, 0.38, 0.009, materials.ringGlow, 96);
+      ring.scale.x = 0.1;
+      return ring;
+    });
+
+    const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.07, 18, 12), materials.ringGlow);
+    sensor.position.set(-0.35, 0.67, 0);
+    root.add(sensor);
+    tube([[-0.35, 0.58, 0], [-0.35, 0.82, 0], [-0.18, 1.02, 0.18]], 0.014, materials.cryoPipe, 24);
+
+    scene.add(new THREE.HemisphereLight(0xe8f0ef, 0x050606, 2.3));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.3);
+    keyLight.position.set(-3.5, -3.0, 4.4);
+    scene.add(keyLight);
+    const rimLight = new THREE.DirectionalLight(0x88c8de, 1.9);
+    rimLight.position.set(4.0, 2.8, -3.8);
+    scene.add(rimLight);
+    const warmLight = new THREE.PointLight(0xd79a63, 1.4, 5);
+    warmLight.position.set(-0.3, 0.4, 1.4);
+    scene.add(warmLight);
+
+    const grid = new THREE.GridHelper(7, 14, 0x30403c, 0x17201e);
+    grid.position.y = 1.18;
+    grid.material.opacity = 0.22;
+    grid.material.transparent = true;
+    scene.add(grid);
+
+    state.engineCad.api = {
+      THREE,
+      renderer,
+      scene,
+      camera,
+      root,
+      materials,
+      parts: { chamberShell, chamberLiner, injector, throat, nozzle, exitShadow, ribs, coolingLines, flanges, riskGlow, acousticRings, warmLight },
+      target: new THREE.Vector3(0, 0, 0),
+    };
+    state.engineCad.ready = true;
+    state.engineCad.loading = false;
+    shell?.classList.add("has-webgl");
+    renderEngineCad();
+  } catch (error) {
+    state.engineCad.failed = true;
+    state.engineCad.loading = false;
+    els.engineCad?.closest(".engine-schematic")?.classList.remove("has-webgl");
+  }
+}
+
+function renderEngineCad({
+  risk = state.risk,
+  mode = state.dominant,
+  displayFreq,
+} = {}) {
+  if (!state.engineCad.ready || !state.engineCad.api || !els.engineCad) return;
+  const { THREE, renderer, scene, camera, materials, parts, target } = state.engineCad.api;
+  const canvas = els.engineCad;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return;
+
+  renderer.setSize(rect.width, rect.height, false);
+  camera.aspect = rect.width / rect.height;
+  camera.updateProjectionMatrix();
+
+  const yaw = state.engineView.yaw;
+  const pitch = state.engineView.pitch;
+  const narrowViewportBoost = camera.aspect < 1.25 ? 1.38 : 1;
+  const distance = (4.9 * narrowViewportBoost) / state.engineView.zoom;
+  camera.position.set(Math.sin(yaw) * distance, Math.sin(pitch) * distance + 0.2, Math.cos(yaw) * distance);
+  camera.lookAt(target);
+
+  const riskValue = clamp(risk, 0.02, 0.99);
+  const color = new THREE.Color(riskColor(riskValue));
+  const freq = Number.isFinite(displayFreq) ? displayFreq : (mode?.freq ?? modes[0].freq);
+  const frequencyRatio = clamp((freq - minFreq) / (maxFreq - minFreq), 0, 1);
+  const modeX = -0.9 + frequencyRatio * 1.05;
+  const pulse = 0.5 + Math.sin(state.time * 5.8) * 0.5;
+
+  materials.riskGlow.color.copy(color);
+  materials.ringGlow.color.copy(color);
+  materials.riskGlow.opacity = riskValue < 0.25 ? 0 : 0.03 + riskValue * 0.16;
+  materials.ringGlow.opacity = riskValue < 0.25 ? 0.015 : 0.08 + riskValue * 0.32;
+  materials.liner.emissive.set(riskValue > 0.72 ? 0x5a120e : riskValue > 0.46 ? 0x3b2208 : 0x1a1007);
+  materials.liner.color.set(riskValue > 0.72 ? 0xd79a63 : 0xb87445);
+  parts.chamberShell.material.opacity = 0.94 + riskValue * 0.03;
+  parts.riskGlow.position.set(modeX, 0, 0);
+  parts.riskGlow.scale.set(0.72 + riskValue * 0.78 + pulse * riskValue * 0.08, 0.32 + riskValue * 0.18, 0.32 + riskValue * 0.18);
+  parts.warmLight.color.copy(color);
+  parts.warmLight.intensity = 0.55 + riskValue * 1.9;
+  parts.warmLight.position.x = modeX;
+
+  parts.acousticRings.forEach((ring, index) => {
+    ring.position.x = modeX + (index - 1) * 0.1;
+    const scale = 0.82 + riskValue * 0.22 + Math.sin(state.time * 4 + index) * 0.025;
+    ring.scale.set(0.1, scale, scale);
+  });
+
+  renderer.render(scene, camera);
 }
 
 function drawGrid(context, width, height) {
@@ -1346,9 +2217,9 @@ els.csvInput.addEventListener("change", async () => {
   await loadReplayText(text, `CSV replay: ${file.name}`);
 });
 
-document.querySelectorAll("[data-demo-source]").forEach((button) => {
+document.querySelectorAll("[data-replay-source]").forEach((button) => {
   button.addEventListener("click", () => {
-    loadBundledReplay(button.dataset.demoSource, button.dataset.demoAutostart === "true");
+    loadBundledReplay(button.dataset.replaySource, button.dataset.replayAutostart === "true");
   });
 });
 
@@ -1385,13 +2256,94 @@ function setView(viewName) {
       drawTrend();
     });
   } else if (viewName === "system") {
-    requestAnimationFrame(() => drawEngineTwin());
+    requestAnimationFrame(() => {
+      initEngineCad();
+      drawEngineTwin();
+    });
   }
 }
 
 document.querySelectorAll("[data-view-target]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.viewTarget));
 });
+
+function bindEngineViewportControls() {
+  const targets = [els.engine, els.engineCad].filter(Boolean);
+  if (!targets.length) return;
+  const shell = targets[0].closest(".engine-schematic");
+
+  const stopDrag = (event) => {
+    if (!state.engineView.dragging) return;
+    state.engineView.dragging = false;
+    shell?.classList.remove("is-dragging");
+    const target = event?.currentTarget;
+    if (event?.pointerId !== undefined && target?.hasPointerCapture?.(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  targets.forEach((canvas) => {
+    canvas.addEventListener("pointerdown", (event) => {
+      canvas.focus();
+      state.engineView.dragging = true;
+      state.engineView.lastX = event.clientX;
+      state.engineView.lastY = event.clientY;
+      shell?.classList.add("is-dragging");
+      canvas.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!state.engineView.dragging) return;
+      const dx = event.clientX - state.engineView.lastX;
+      const dy = event.clientY - state.engineView.lastY;
+      state.engineView.lastX = event.clientX;
+      state.engineView.lastY = event.clientY;
+      state.engineView.yaw += dx * 0.0075;
+      state.engineView.pitch = clamp(state.engineView.pitch + dy * 0.0055, -0.58, 0.58);
+      updateEngineViewReadout();
+      drawEngineTwin();
+    });
+
+    canvas.addEventListener("pointerup", stopDrag);
+    canvas.addEventListener("pointercancel", stopDrag);
+
+    canvas.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const scale = event.deltaY > 0 ? 0.92 : 1.08;
+        state.engineView.zoom = clamp(state.engineView.zoom * scale, 0.72, 1.55);
+        updateEngineViewReadout();
+        drawEngineTwin();
+      },
+      { passive: false },
+    );
+
+    canvas.addEventListener("dblclick", resetEngineView);
+    canvas.addEventListener("keydown", (event) => {
+      const step = event.shiftKey ? 0.12 : 0.06;
+      let handled = true;
+      if (event.key === "ArrowLeft") state.engineView.yaw -= step;
+      else if (event.key === "ArrowRight") state.engineView.yaw += step;
+      else if (event.key === "ArrowUp") state.engineView.pitch = clamp(state.engineView.pitch - step, -0.58, 0.58);
+      else if (event.key === "ArrowDown") state.engineView.pitch = clamp(state.engineView.pitch + step, -0.58, 0.58);
+      else if (event.key === "+" || event.key === "=") state.engineView.zoom = clamp(state.engineView.zoom * 1.08, 0.72, 1.55);
+      else if (event.key === "-" || event.key === "_") state.engineView.zoom = clamp(state.engineView.zoom * 0.92, 0.72, 1.55);
+      else if (event.key === "0") resetEngineView();
+      else handled = false;
+
+      if (handled) {
+        event.preventDefault();
+        updateEngineViewReadout();
+        drawEngineTwin();
+      }
+    });
+  });
+
+  els.engineReset?.addEventListener("click", resetEngineView);
+  updateEngineViewReadout();
+}
 
 async function loadTrainedEdgeModel() {
   try {
@@ -1429,6 +2381,8 @@ window.addEventListener("resize", () => {
   drawEngineTwin();
 });
 
+bindEngineViewportControls();
+initEngineCad();
 setScenario("nominal");
 loadTrainedEdgeModel();
 requestAnimationFrame(() => drawEngineTwin());

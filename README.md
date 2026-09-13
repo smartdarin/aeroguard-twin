@@ -1,30 +1,20 @@
 # AeroGuard Twin
 
-Round 2 Software-in-the-Loop prototype for an aero-acoustic digital twin that detects early combustion-instability signatures and demonstrates bounded closed-loop correction.
+Software-in-the-loop prototype for an aero-acoustic digital twin that detects early combustion-instability signatures and demonstrates bounded closed-loop correction.
 
 ## Concept
 
-AeroGuard Twin is an edge-AI safety layer for high-performance hydrogen propulsion systems. It processes pressure/acoustic telemetry, identifies resonance-mode growth, and gives operators a real-time view of instability risk before destructive combustion oscillations fully develop.
+AeroGuard Twin is an edge-AI safety layer for high-performance hydrogen propulsion systems. It processes pressure/acoustic telemetry, identifies resonance-mode growth, and gives operators a real-time view of instability risk before destructive combustion oscillations fully develop. The System View uses a Three.js/WebGL CE-20 reference-class cryogenic engine layout for visual realism, while the AI/control loop remains a software-in-the-loop prototype.
 
-The prototype demonstrates:
+The prototype includes:
 
 - CFD-derived pressure-monitor data replay.
 - Edge-style acoustic feature extraction using Goertzel/FFT-like spectral energy estimates.
 - A trained tiny MLP model for instability-risk prediction.
 - Dominant acoustic mode identification across L2, T1, and T2 bands.
-- Explainable visual indicators showing which frequency band is driving the decision.
+- Explainable indicators showing which frequency band is driving the decision.
 - A bounded `dO/F` micro-correction output for closed-loop suppression.
-- A multi-page dashboard with overview, system view, CFD/AI model status, and operator console.
-
-## Live Prototype
-
-This project is designed to run as a static web app.
-
-After deployment through GitHub Pages, the prototype URL will be:
-
-```text
-https://smartdarin.github.io/aeroguard-twin/
-```
+- A multi-page dashboard with overview, interactive CAD-style system view, CFD/AI model status, and operator console.
 
 ## How To Run Locally
 
@@ -40,21 +30,23 @@ http://127.0.0.1:5500/index.html
 
 The app is static and uses only HTML, CSS, and JavaScript. No npm install is required for the dashboard.
 
-Note: running through Live Server or GitHub Pages is recommended because the dashboard loads `aeroguard_edge_model.json` with `fetch()`.
+Running through Live Server, GitHub Pages, or another static host is recommended because the dashboard loads `aeroguard_edge_model.json` with `fetch()`.
 
-## Demo Flow
+## Replay Workflow
 
-1. Open the dashboard.
-2. On `Overview`, click `Run instability demo` for the fastest assessor-friendly path.
-3. The app opens `Operator Console`, loads the bundled `Unstable.CSV`, and starts replay automatically.
-4. Watch the AI risk, dominant mode, waterfall intensity, and bounded `dO/F` correction update live.
-5. Open `System View` to inspect the 3D-style digital twin cutaway of the chamber, injector, nozzle, sensor, and edge-AI decision.
+Built-in replay:
 
-Manual mode:
+1. Open `Operator Console`.
+2. Click `Load unstable replay` or `Load stable replay`.
+3. The bundled CSV telemetry loads automatically and replay starts.
+4. Watch the AI risk, dominant mode, waterfall intensity, pressure waveform, and bounded `dO/F` correction update live.
+5. Open `System View` to rotate, zoom, and inspect the CAD-style digital twin cutaway of the chamber, injector, nozzle, sensor, and edge-AI decision.
+
+Manual CSV replay:
 
 1. Go to `Operator Console`.
 2. Click `Load CSV`.
-3. Select either:
+3. Select one of the included CSV files or your own compatible telemetry export:
 
 ```text
 stable.CSV
@@ -63,16 +55,14 @@ telemetry_cfd_model_replay.csv
 ```
 
 4. Click `Start`.
-5. Move between `System View`, `CFD + AI Model`, and `Operator Console` to show the full safety loop.
+5. Move between `System View`, `CFD + AI Model`, and `Operator Console` to inspect the full safety loop.
 
-Assessors can also download `stable.CSV` and `Unstable.CSV` from the Overview page and run the same data manually through `Operator Console`.
-
-The replay does not run before a CSV is loaded and `Start` is pressed.
+The replay does not run before telemetry is loaded and `Start` is pressed.
 
 ## Dashboard Pages
 
 - `Overview`: explains the end-to-end SIL architecture.
-- `System View`: shows a 3D-style propulsion cutaway, injector, combustion chamber, nozzle, sensor, edge AI, and decision output.
+- `System View`: shows an interactive Three.js/WebGL CAD-style CE-20 reference-class cryogenic engine with metallic shading, turbopump housings, feed lines, flange bolts, cooling-channel ribs, copper liner, and graphite bell nozzle; risk colors appear as acoustic overlays, not hardware paint.
 - `CFD + AI Model`: summarizes the CFD traces, training windows, model type, and error metric.
 - `Operator Console`: shows spectral waterfall, pressure waveform, AI risk, dominant mode, dO/F correction, and telemetry packet log.
 
@@ -114,7 +104,7 @@ Outputs:
 - Dominant acoustic mode attribution
 - Controller input for bounded `dO/F` correction
 
-Training result from the current artifact:
+Current training result:
 
 ```text
 Risk MAE: 0.0296
@@ -122,7 +112,7 @@ Training windows: 47
 Hidden neurons: 8
 ```
 
-Important: the replay CSV files contain physical telemetry only. They do not include a risk column. The displayed risk is computed by the trained model.
+The replay CSV files contain physical telemetry only. They do not include a risk column. The displayed risk is computed by the trained model.
 
 ## Retraining
 
@@ -141,7 +131,7 @@ telemetry_cfd_model_replay.csv
 
 ## CSV Format
 
-Expected public replay columns:
+Expected replay columns:
 
 ```csv
 pressure_mpa,mixture_of,injector_dp_mpa,frequency_hz,sample_rate_ksa,growth_rate
@@ -152,17 +142,17 @@ The dashboard uses these physical telemetry columns to synthesize the pressure/a
 ## Repository Files
 
 ```text
-index.html                  Dashboard structure
-styles.css                  Dashboard and 3D-style system view styling
-app.js                      Telemetry replay, feature extraction, AI inference, visualization
-train_edge_model.js         CFD training script for the tiny MLP model
-aeroguard_edge_model.json   Trained edge-AI model artifact
-stable.CSV                  Stable replay example
-Unstable.CSV                Instability replay example
-telemetry_cfd_model_replay.csv  CFD-derived validation replay
-*.out                       CFD pressure-monitor traces
+index.html                      Dashboard structure
+styles.css                      Dashboard and WebGL/CAD-style system view styling
+app.js                          Telemetry replay, feature extraction, AI inference, visualization
+train_edge_model.js             CFD training script for the tiny MLP model
+aeroguard_edge_model.json       Trained edge-AI model artifact
+stable.CSV                      Stable replay example
+Unstable.CSV                    Instability replay example
+telemetry_cfd_model_replay.csv  CFD-derived replay
+*.out                           CFD pressure-monitor traces
 ```
 
 ## Prototype Status
 
-This is a Round 2 SIL prototype. It is suitable for demonstrating the digital architecture, AI inference workflow, and operator visualization. It is not a certified production engine controller and would require substantially more CFD cases, hot-fire validation, robustness testing, and safety certification before any operational use.
+This is a software-in-the-loop research prototype. It is suitable for demonstrating the digital architecture, AI inference workflow, and operator visualization. It is not a certified production engine controller and would require substantially more CFD cases, hot-fire validation, robustness testing, and safety certification before any operational use.

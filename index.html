@@ -3,14 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AeroGuard Twin | Round 2 SIL Prototype</title>
-    <link rel="stylesheet" href="styles.css?v=20260525-demo3" />
+    <title>AeroGuard Twin | SIL Prototype</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css?v=20260815-cad3" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Airbus Fly Your Ideas - Round 2 SIL demo</p>
+          <p class="eyebrow">Software-in-the-loop propulsion safety prototype</p>
           <h1>AeroGuard Twin</h1>
         </div>
         <div class="system-strip" aria-label="System health summary">
@@ -41,31 +42,6 @@
       </nav>
 
       <main class="view-page overview-page active" id="view-overview">
-        <section class="panel demo-guide priority-demo" aria-label="Prototype demo guide">
-          <div>
-            <p class="eyebrow">Start here</p>
-            <h2>One-click assessor demo</h2>
-            <p class="demo-lead">
-              Run the built-in instability replay directly from this link, then open System View to see the digital twin cutaway.
-            </p>
-            <div class="demo-actions">
-              <button class="primary-action" type="button" data-demo-source="Unstable.CSV" data-demo-autostart="true">Run instability demo</button>
-              <button class="secondary-action" type="button" data-demo-source="stable.CSV" data-demo-autostart="true">Run stable demo</button>
-              <button class="secondary-action" type="button" data-view-target="system">Open System View</button>
-              <div class="download-links">
-                <span>Manual mode:</span>
-                <a href="Unstable.CSV" download>Download unstable combustion data</a>
-                <a href="stable.CSV" download>Download stable combustion data</a>
-              </div>
-            </div>
-          </div>
-          <ol>
-            <li><strong>Click Run instability demo</strong><span>The bundled <code>Unstable.CSV</code> loads automatically from this link.</span></li>
-            <li><strong>Watch the operator console</strong><span>AI risk, waterfall intensity, dominant mode, and bounded <code>dO/F</code> correction update live.</span></li>
-            <li><strong>Inspect System View</strong><span>The System View page shows the 3D-style digital twin chamber, injector, nozzle, sensor, and edge-AI decision.</span></li>
-          </ol>
-        </section>
-
         <section class="panel overview-hero">
           <div>
             <p class="eyebrow">Software-in-the-loop architecture</p>
@@ -123,14 +99,29 @@
             <h2>Simplified engine safety loop</h2>
           </div>
           <p>
-            The twin represents the propulsion system through pressure/acoustic behavior, sensor telemetry,
-            edge inference, and bounded valve correction.
+            The twin uses a CE-20 reference-class cryogenic engine layout while the safety loop represents
+            pressure/acoustic behavior, sensor telemetry, edge inference, and bounded valve correction.
           </p>
         </section>
 
         <section class="panel system-diagram" aria-label="Engine digital twin system schematic">
           <div class="engine-schematic is-3d">
-            <canvas id="engineCanvas" class="engine-canvas" aria-label="3D combustion chamber digital twin visualization"></canvas>
+            <canvas
+              id="engineCadCanvas"
+              class="engine-canvas engine-webgl"
+              aria-label="WebGL CAD-style CE-20 reference-class cryogenic engine visualization"
+              tabindex="0"
+            ></canvas>
+            <canvas
+              id="engineCanvas"
+              class="engine-canvas engine-fallback"
+              aria-label="Interactive 3D combustion chamber digital twin visualization"
+              tabindex="0"
+            ></canvas>
+            <div class="viewport-toolbar" aria-label="CAD viewport controls">
+              <span class="viewport-pill" id="engineViewReadout">Yaw 20 | Pitch 8 | Zoom 100%</span>
+              <button id="engineReset" type="button" title="Reset 3D view" aria-label="Reset 3D view">Reset</button>
+            </div>
             <div class="injector">
               <span>Injector</span>
             </div>
@@ -160,7 +151,7 @@
             <div class="edge-box">
               <span>Edge SoC</span>
               <strong>CFD-trained AI</strong>
-              <p>FFT/window features -> risk + mode</p>
+              <p>Pressure windows -> risk + mode</p>
             </div>
             <div class="edge-box decision">
               <span>Decision</span>
@@ -338,13 +329,13 @@
           </div>
 
           <div class="console-hint">
-            <strong>Quick demo:</strong>
-            <span>Load <code>Unstable.CSV</code>, press Start, then watch AI risk, waterfall intensity, chamber color, and <code>dO/F</code> correction.</span>
+            <strong>Replay shortcut:</strong>
+            <span>Load built-in stable or unstable telemetry, then watch AI risk, waterfall intensity, chamber color, and <code>dO/F</code> correction.</span>
           </div>
 
           <div class="sample-actions" aria-label="Built-in replay shortcuts">
-            <button type="button" data-demo-source="Unstable.CSV" data-demo-autostart="true">Run built-in unstable replay</button>
-            <button type="button" data-demo-source="stable.CSV" data-demo-autostart="true">Run built-in stable replay</button>
+            <button type="button" data-replay-source="Unstable.CSV" data-replay-autostart="true">Load unstable replay</button>
+            <button type="button" data-replay-source="stable.CSV" data-replay-autostart="true">Load stable replay</button>
           </div>
 
           <label class="range-row">
@@ -461,6 +452,6 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260525-demo3"></script>
+    <script src="app.js?v=20260815-cad3"></script>
   </body>
 </html>
